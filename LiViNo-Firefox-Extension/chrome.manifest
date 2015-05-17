@@ -1,0 +1,7 @@
+content	livino	content/
+overlay	chrome://browser/content/browser.xul	chrome://livino/content/overlay.xul
+
+locale	livino	en-US	locale/en-US/
+
+skin	livino	classic/1.0	skin/
+style	chrome://global/content/customizeToolbar.xul	chrome://livino/skin/overlay.css
