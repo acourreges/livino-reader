@@ -1,15 +1,19 @@
-From e8239a6e07c490f8533e5387ea79e1484e198c46 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Adrian=20Courr=C3=A8ges?= <a.courreges@gmail.com>
-Date: Sun, 17 May 2015 22:40:17 +0900
-Subject: [PATCH] Added LiViNo logic to dump characters to an HTML file
-
----
- dlls/gdi32/font.c        | 70 +++++++++++++++++++++++++++++++++++++++++++++++-
- dlls/gdi32/gdi_private.h |  6 +++++
- 2 files changed, 75 insertions(+), 1 deletion(-)
-
+diff --git a/dlls/gdi32/dibdrv/graphics.c b/dlls/gdi32/dibdrv/graphics.c
+index f3aaeb6..3caa5cf 100644
+--- a/dlls/gdi32/dibdrv/graphics.c
++++ b/dlls/gdi32/dibdrv/graphics.c
+@@ -758,7 +758,8 @@ static void render_string( HDC hdc, dib_info *dib, struct cached_font *font, INT
+ 
+     for (i = 0; i < count; i++)
+     {
+-        if (!(glyph = get_cached_glyph( font, str[i], flags )) &&
++        // Disable font-caching for Livino
++        if ( // !(glyph = get_cached_glyph( font, str[i], flags )) &&
+             !(glyph = cache_glyph_bitmap( hdc, font, str[i], flags ))) continue;
+ 
+         glyph_dib.width       = glyph->metrics.gmBlackBoxX;
 diff --git a/dlls/gdi32/font.c b/dlls/gdi32/font.c
-index 7fd5bd3..93cd8f7 100644
+index 7fd5bd3..ba8df0f 100644
 --- a/dlls/gdi32/font.c
 +++ b/dlls/gdi32/font.c
 @@ -2762,7 +2762,6 @@ BOOL WINAPI GetCharABCWidthsI( HDC hdc, UINT firstChar, UINT count,
@@ -20,23 +24,16 @@ index 7fd5bd3..93cd8f7 100644
  /***********************************************************************
   *           GetGlyphOutlineA    (GDI32.@)
   */
-@@ -2790,10 +2789,79 @@ DWORD WINAPI GetGlyphOutlineA( HDC hdc, UINT uChar, UINT fuFormat,
-         MultiByteToWideChar(cp, 0, mbchs, len, (LPWSTR)&uChar, 1);
-     }
- 
-+    // Sends the character to Livino
-+    treatCharacter(uChar, cbBuffer);
-+
-     return GetGlyphOutlineW(hdc, uChar, fuFormat, lpgm, cbBuffer, lpBuffer,
+@@ -2794,6 +2793,92 @@ DWORD WINAPI GetGlyphOutlineA( HDC hdc, UINT uChar, UINT fuFormat,
                              lpmat2);
  }
  
 +const char* LIVINO_DUMP_FILE_PATH = "/tmp/vndump.html";
 +
 +/*
-+ * This is where we analyze each character request made by the game going through GetGlyphOutlineA().
++ * This where we analyze each character request made by the game going through GetGlyphOutlineB().
 + * The characters are dumped to a file. 
-+ * There are some heuristics also: some games make double-calls to GetGlyphOutlineA() 
++ * There are some heuristics also: some games make double-calls
 + * for just a single character and we want to avoid double-dumping. 
 + */
 +void treatCharacter(UINT c, DWORD cbBuffer) {
@@ -44,6 +41,8 @@ index 7fd5bd3..93cd8f7 100644
 +    static int isInitialized = 0;
 +    static FILE *file;
 +    static time_t lastTime;
++
++    if (!cbBuffer) return;
 +
 +    if (cbBuffer && !isInitialized) {
 +        isInitialized = 1;
@@ -67,15 +66,32 @@ index 7fd5bd3..93cd8f7 100644
 +    static UINT lastChar = 0;
 +    static int nbRep = 0;
 +    static int skip1Of2 = 0;
++    static int pairJustFound = 0;
 +
 +    charsPrinted++;
 +
-+    // Uses a first set of character to guess if this game likes to "double-request" characters
++    // Examines the set of the latest printed characters to guess 
++    // if this game likes to "double requests" characters.
 +    int CHECK_LIMIT = 30;
-+    if (charsPrinted <= CHECK_LIMIT) {
-+        if (c == lastChar) nbRep++;
++    
++    if (skip1Of2 == 0 && charsPrinted <= CHECK_LIMIT) {
++        if (c == lastChar) {
++            // Just read a double character
++            if (!pairJustFound) {
++                // New pair, count it
++                nbRep ++;
++            }
++            // Pair or series of the same character
++            pairJustFound = 1;
++        } else {
++            pairJustFound = 0;
++        }
 +        lastChar = c;
-+        if (charsPrinted == CHECK_LIMIT) skip1Of2 = nbRep > CHECK_LIMIT * 0.4f? 1 : 0;
++        if (charsPrinted == CHECK_LIMIT) {
++            // Time to check our latest set
++            skip1Of2 = nbRep > CHECK_LIMIT * 0.4f? 1 : 0;
++            nbRep = charsPrinted = 0; // Reset for next set to examine
++        }
 +    }
 +
 +    if (skip1Of2 && (charsPrinted % 2 == 0) ) {
@@ -87,6 +103,7 @@ index 7fd5bd3..93cd8f7 100644
 +        fflush(file);
 +        if (l == -1) ERR("Could not write to file!\n");
 +    }
++
 +}
 +
 +/*
@@ -100,6 +117,25 @@ index 7fd5bd3..93cd8f7 100644
  /***********************************************************************
   *           GetGlyphOutlineW    (GDI32.@)
   */
+@@ -2801,6 +2886,8 @@ DWORD WINAPI GetGlyphOutlineW( HDC hdc, UINT uChar, UINT fuFormat,
+                                  LPGLYPHMETRICS lpgm, DWORD cbBuffer,
+                                  LPVOID lpBuffer, const MAT2 *lpmat2 )
+ {
++    
++
+     DC *dc;
+     DWORD ret;
+     PHYSDEV dev;
+@@ -2813,6 +2900,9 @@ DWORD WINAPI GetGlyphOutlineW( HDC hdc, UINT uChar, UINT fuFormat,
+     dc = get_dc_ptr(hdc);
+     if(!dc) return GDI_ERROR;
+ 
++    // Forward to Livino
++    treatCharacter(uChar, cbBuffer);
++
+     dev = GET_DC_PHYSDEV( dc, pGetGlyphOutline );
+     ret = dev->funcs->pGetGlyphOutline( dev, uChar, fuFormat, lpgm, cbBuffer, lpBuffer, lpmat2 );
+     release_dc_ptr( dc );
 diff --git a/dlls/gdi32/gdi_private.h b/dlls/gdi32/gdi_private.h
 index edd4bf6..01102ae 100644
 --- a/dlls/gdi32/gdi_private.h
@@ -122,6 +158,3 @@ index edd4bf6..01102ae 100644
 +void writeHTMLHeader(FILE *file);
 +
  #endif /* __WINE_GDI_PRIVATE_H */
--- 
-2.1.4
-
