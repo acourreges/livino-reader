@@ -17,5 +17,10 @@ LiViNo Reader will live-stream all the text rendered by the game directly to the
 
 ![Screenshot](/media/screenshot.jpg)
 
-For detailed instructions about installation or use, please check the [LiViNo Reader page](http://www.adriancourreges.com/projects/livino-reader/). 
+## Installation and Usage
 
+For detailed instructions about installation or usage, please check the [LiViNo Reader page](http://www.adriancourreges.com/projects/livino-reader/). 
+
+## Compatible Games
+
+Some games confirmed to be working are [listed on the wiki](https://github.com/acourreges/livino-reader/wiki). 
